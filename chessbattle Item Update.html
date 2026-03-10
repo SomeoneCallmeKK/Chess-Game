@@ -1,0 +1,536 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <title>Chess Survival: Item Update - FullFix</title>
+    <style>
+        :root { --primary: #FFD700; --bg: #1a1a1a; --panel: #2d3436; }
+        body { font-family: 'Segoe UI', sans-serif; background: var(--bg); color: white; margin: 0; display: flex; justify-content: center; align-items: center; height: 100vh; overflow: hidden; }
+        
+        #main-container { display: flex; gap: 20px; padding: 20px; background: #2c3e50; border-radius: 15px; box-shadow: 0 0 50px rgba(0,0,0,0.5); }
+        .game-side { display: flex; flex-direction: column; align-items: center; }
+        .info-side { width: 260px; display: flex; flex-direction: column; gap: 15px; }
+
+        .board { display: grid; grid-template-columns: repeat(8, 60px); grid-template-rows: repeat(8, 60px); border: 5px solid #5D4037; background: #000; }
+        .cell { width: 60px; height: 60px; display: flex; flex-direction: column; justify-content: center; align-items: center; font-size: 45px; cursor: pointer; position: relative; }
+        .brown { background: #8B4513; } .gold { background: #cebb5d; }
+        .selected { background: #2ecc71 !important; }
+        .highlight { width: 15px; height: 15px; background: rgba(255,255,255,0.5); border-radius: 50%; position: absolute; pointer-events: none; z-index: 10; }
+        
+        .piece-icon { z-index: 2; display: flex; justify-content: center; align-items: center; height: 40px; }
+        .w-piece { color: #ffffff; filter: drop-shadow(0 0 2px black); }
+        .b-piece { color: #000000; filter: drop-shadow(0 0 1px white); }
+        .buff-icon { position: absolute; top: -5px; right: -5px; font-size: 16px; z-index: 15; text-shadow: 0 0 2px black; }
+        
+        .mini-hp-container { width: 45px; height: 5px; background: #222; border: 1px solid #000; border-radius: 3px; position: absolute; bottom: 3px; z-index: 5; overflow: hidden; }
+        .mini-hp-fill { height: 100%; background: #2ecc71; transition: 0.3s; }
+        .mini-armor-container { width: 45px; height: 3px; background: transparent; position: absolute; bottom: 10px; z-index: 5; overflow: hidden; border-radius: 2px; }
+        .mini-armor-fill { height: 100%; background: #3498db; transition: 0.3s; border: 1px solid #000; }
+
+        .panel { background: var(--panel); padding: 15px; border-radius: 10px; border: 2px solid #444; display: flex; flex-direction: column; }
+        .panel-title { margin: 0 0 10px 0; color: var(--primary); font-size: 16px; border-bottom: 1px solid #444; padding-bottom: 5px; }
+        
+        /* Item Buttons */
+        .item-btn { padding: 8px 10px; margin-bottom: 5px; border-radius: 5px; border: none; background: #34495e; color: white; cursor: pointer; text-align: left; font-weight: bold; transition: 0.2s; display: flex; justify-content: space-between; }
+        .item-btn:hover:not(:disabled) { background: #4b6584; }
+        .item-btn.active { outline: 2px solid #2ecc71; background: #27ae60; }
+        .item-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+        #log-container { flex-grow: 1; overflow-y: auto; font-size: 13px; max-height: 200px; border-left: 4px solid var(--primary); padding-left: 10px; }
+        .log-entry { margin-bottom: 5px; padding: 3px 0; border-bottom: 1px dotted #555; animation: fadeIn 0.3s; }
+        .log-ai { color: #fab1a0; } .log-player { color: #55efc4; } .log-sys { color: var(--primary); font-weight:bold; }
+
+        #battle-screen { display: none; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 480px; background: var(--panel); border: 5px solid var(--primary); border-radius: 20px; z-index: 100; padding: 25px; text-align: center; box-shadow: 0 0 100px rgba(0,0,0,0.8); }
+        .hp-bar { width: 100%; height: 15px; background: #444; border-radius: 10px; margin: 3px 0; border: 1px solid #fff; overflow: hidden; position: relative; }
+        .hp-fill { height: 100%; background: #2ecc71; width: 100%; transition: 0.3s; }
+        
+        /* FIX: เพิ่ม z-index: 2 เพื่อให้เกราะอยู่ด้านบน ไม่ถูกเลือดบัง */
+        .armor-bar { position: absolute; top: 0; left: 0; height: 100%; background: rgba(52, 152, 219, 0.8); transition: 0.3s; z-index: 2; }
+
+        .overlay-screen { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.9); display: flex; flex-direction: column; justify-content: center; align-items: center; z-index: 200; }
+        #lobby-screen { display: flex; } #gameover-screen { display: none; }
+        button.action-btn { padding: 12px 25px; cursor: pointer; font-weight: bold; border-radius: 8px; border: none; transition: 0.2s; background: var(--primary); color: #000; }
+        button.action-btn:hover:not(:disabled) { transform: scale(1.05); }
+        .btn-atk { background: #e17055; color: white; margin-right: 10px;} .btn-def { background: #0984e3; color: white; }
+        
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+    </style>
+</head>
+<body>
+
+    <div id="lobby-screen" class="overlay-screen">
+        <h1 style="color: var(--primary); font-size: 3rem; margin-bottom: 10px;">CHESS BATTLE</h1>
+        <p>By SomeoneCallmeKK</p>
+        <button class="action-btn" onclick="startGame()" style="font-size: 1.5rem;">START GAME</button>
+    </div>
+
+    <div id="gameover-screen" class="overlay-screen">
+        <h1 id="result-text" style="font-size: 3rem;">YOU WIN!</h1>
+        <p id="final-score">ชนะสะสม: 0 รอบ</p>
+        <button class="action-btn" style="background:#2ecc71; color:white; margin-bottom:10px;" onclick="startGame()">PLAY AGAIN</button>
+    </div>
+
+    <div id="main-container">
+        <div class="game-side">
+            <div style="width: 100%; display: flex; justify-content: space-between; margin-bottom: 10px;">
+                <div id="turn-info" style="font-weight: bold; color: var(--primary);">TURN: WHITE</div>
+                <div style="font-weight: bold;">WIN STREAK: <span id="win-count" style="color: #2ecc71;">0</span></div>
+            </div>
+            <div id="board" class="board"></div>
+            <p id="item-status" style="margin-top: 10px; color: #bdc3c7; font-size:14px;">คลิกที่หมากเพื่อเดิน</p>
+        </div>
+
+        <div class="info-side">
+            <div class="panel" style="flex: 0 0 auto;">
+                <h4 class="panel-title">INVENTORY</h4>
+                <button class="item-btn" id="btn-sword" onclick="toggleItem('sword')"><span>🗡️ ดาบ (Dmg x2)</span><span id="qty-sword">1</span></button>
+                <button class="item-btn" id="btn-shield" onclick="toggleItem('shield')"><span>🛡️ โล่ (Armor 50%)</span><span id="qty-shield">2</span></button>
+                <button class="item-btn" id="btn-repair" onclick="toggleItem('repair')"><span>🔧 ซ่อม (Heal 20%)</span><span id="qty-repair">2</span></button>
+            </div>
+            <div class="panel" style="flex: 1 1 auto; height:200px;">
+                <h4 class="panel-title">BATTLE LOG</h4>
+                <div id="log-container"></div>
+            </div>
+        </div>
+
+        <div id="battle-screen">
+            <h2 style="color: var(--primary); margin-top: 0;">DUEL!</h2>
+            <div id="atk-ui">
+                <div id="atk-side" style="font-size: 12px; color: #aaa;">ATTACKER</div>
+                <div id="atk-name" style="font-weight: bold;">-</div>
+                <div class="hp-bar"><div id="armor-atk" class="armor-bar" style="width:0%;"></div><div id="hp-atk" class="hp-fill"></div></div>
+                <div style="font-size: 12px;">Energy: <span id="en-atk">10</span> | <span id="atk-stats-tag">Atk: 0</span> <span id="atk-buff" style="color:#f1c40f"></span></div>
+            </div>
+            <div style="margin: 15px; font-weight: bold; color: #e74c3c;">V S</div>
+            <div id="def-ui">
+                <div id="def-side" style="font-size: 12px; color: #aaa;">DEFENDER</div>
+                <div id="def-name" style="font-weight: bold;">-</div>
+                <div class="hp-bar"><div id="armor-def" class="armor-bar" style="width:0%;"></div><div id="hp-def" class="hp-fill"></div></div>
+                <div style="font-size: 12px;">Energy: <span id="en-def">10</span> | <span id="def-stats-tag">Atk: 0</span> <span id="def-buff" style="color:#f1c40f"></span></div>
+            </div>
+            <div style="margin-top: 20px;">
+                <button class="action-btn btn-atk" id="combat-atk-btn" onclick="combatAction('attack')">โจมตี (-2E)</button>
+                <button class="action-btn btn-def" id="combat-def-btn" onclick="combatAction('defense')">ป้องกัน</button>
+            </div>
+            <p id="battle-log" style="font-size: 14px; color: var(--primary); font-weight: bold; margin-top: 15px; min-height:20px;"></p>
+        </div>
+    </div>
+
+    <script>
+        const pieceIcons = { 'R':'♜','N':'♞','B':'♝','Q':'♛','K':'♚','P':'♟', 'r':'♜','n':'♞','b':'♝','q':'♛','k':'♚','p':'♟', '':'' };
+        const pieceStats = {
+            'p': { hp: 10, minDmg: 1, maxDmg: 3, name: 'Pawn' },
+            'n': { hp: 20, minDmg: 2, maxDmg: 3, name: 'Knight' },
+            'b': { hp: 2,  minDmg: 15, maxDmg: 22, name: 'Bishop' },
+            'r': { hp: 12, minDmg: 3, maxDmg: 5, name: 'Rook' },
+            'q': { hp: 15, minDmg: 3, maxDmg: 6, name: 'King' },
+            'k': { hp: 30, minDmg: 1, maxDmg: 2, name: 'Queen' }   
+        };
+
+        let playerColor, turn, selected = null, moves = [], isBattle = false, isProcessing = false;
+        let winStreak = 0, activeItem = null;
+        let battleData = null;
+
+        let board = [], boardHP = [], boardArmor = [], boardSword = [];
+        let pItems = { sword: 1, shield: 2, repair: 2 };
+        let botItems = { sword: 1, shield: 2, repair: 2 };
+
+        function startGame() {
+            document.getElementById('lobby-screen').style.display = 'none';
+            document.getElementById('gameover-screen').style.display = 'none';
+            playerColor = Math.random() > 0.5 ? 'white' : 'black';
+            turn = 'white';
+            
+            pItems = { sword: 1, shield: 2, repair: 2 };
+            botItems = { sword: 1, shield: 2, repair: 2 };
+            activeItem = null;
+
+            board = [
+                ['R','N','B','Q','K','B','N','R'], ['P','P','P','P','P','P','P','P'],
+                ['','','','','','','',''],['','','','','','','',''],['','','','','','','',''],['','','','','','','',''],
+                ['p','p','p','p','p','p','p','p'], ['r','n','b','q','k','b','n','r']
+            ];
+            
+            boardHP = board.map(r => r.map(p => p ? pieceStats[p.toLowerCase()].hp : 0));
+            boardArmor = board.map(r => r.map(() => 0));
+            boardSword = board.map(r => r.map(() => false));
+            
+            document.getElementById('log-container').innerHTML = '';
+            addLog("--- เริ่มเกมใหม่ ---", 'log-sys');
+            addLog(`คุณเล่นฝั่ง: ${playerColor.toUpperCase()}`, 'log-sys');
+            init();
+        }
+
+        function init() {
+            document.getElementById('win-count').innerText = winStreak;
+            updateInventoryUI();
+            endTurnRoutine(true);
+        }
+
+        function toggleItem(item) {
+            if(turn !== playerColor || isProcessing || isBattle) return;
+            if(pItems[item] <= 0) return;
+            
+            if(activeItem === item) {
+                activeItem = null;
+                document.getElementById('item-status').innerText = "คลิกที่หมากเพื่อเดิน";
+            } else {
+                activeItem = item;
+                document.getElementById('item-status').innerText = `กำลังใช้งาน: ${item.toUpperCase()} (คลิกที่หมากของคุณ)`;
+            }
+            updateInventoryUI();
+        }
+
+        function updateInventoryUI() {
+            ['sword', 'shield', 'repair'].forEach(i => {
+                const btn = document.getElementById(`btn-${i}`);
+                document.getElementById(`qty-${i}`).innerText = pItems[i];
+                btn.disabled = (pItems[i] <= 0);
+                if(activeItem === i) btn.classList.add('active');
+                else btn.classList.remove('active');
+            });
+        }
+
+        function addLog(msg, type = '') {
+            const container = document.getElementById('log-container');
+            const div = document.createElement('div');
+            div.className = `log-entry ${type}`;
+            div.innerText = msg;
+            container.prepend(div);
+        }
+
+        function render() {
+            const bEl = document.getElementById('board'); bEl.innerHTML = '';
+            for(let r=0; r<8; r++) {
+                for(let c=0; c<8; c++) {
+                    const cell = document.createElement('div');
+                    cell.className = `cell ${(r+c)%2===0 ? 'gold' : 'brown'}`;
+                    if(selected && selected.r === r && selected.c === c) cell.classList.add('selected');
+                    
+                    const char = board[r][c];
+                    if(char !== '') {
+                        const iconDiv = document.createElement('div');
+                        iconDiv.className = `piece-icon ${char === char.toLowerCase() ? 'w-piece' : 'b-piece'}`;
+                        iconDiv.textContent = pieceIcons[char];
+                        cell.appendChild(iconDiv);
+
+                        if(boardSword[r][c]) {
+                            const buff = document.createElement('div'); buff.className = 'buff-icon'; buff.innerText = '🗡️'; cell.appendChild(buff);
+                        }
+
+                        if(boardArmor[r][c] > 0) {
+                            const arCont = document.createElement('div'); arCont.className = 'mini-armor-container';
+                            const arFill = document.createElement('div'); arFill.className = 'mini-armor-fill';
+                            const maxHp = pieceStats[char.toLowerCase()].hp;
+                            arFill.style.width = Math.min(100, (boardArmor[r][c] / (maxHp*0.5)) * 100) + '%';
+                            arCont.appendChild(arFill); cell.appendChild(arCont);
+                        }
+
+                        const hpCont = document.createElement('div'); hpCont.className = 'mini-hp-container';
+                        const hpFill = document.createElement('div'); hpFill.className = 'mini-hp-fill';
+                        const maxHp = pieceStats[char.toLowerCase()].hp;
+                        const hpPercent = Math.max(0, (boardHP[r][c] / maxHp) * 100);
+                        hpFill.style.width = hpPercent + '%';
+                        hpFill.style.backgroundColor = hpPercent <= 30 ? '#e74c3c' : '#2ecc71';
+                        hpCont.appendChild(hpFill); cell.appendChild(hpCont);
+                    }
+
+                    if(moves.some(m => m.r === r && m.c === c)) {
+                        const dot = document.createElement('div'); dot.className = 'highlight'; cell.appendChild(dot);
+                    }
+                    cell.onclick = () => handleClick(r, c);
+                    bEl.appendChild(cell);
+                }
+            }
+        }
+
+        function handleClick(r, c) {
+            if(isBattle || turn !== playerColor || isProcessing) return;
+            const p = board[r][c];
+            const isWhite = (p !== '' && p === p.toLowerCase());
+            const myPiece = (playerColor === 'white' && isWhite) || (playerColor === 'black' && (p !== '' && p === p.toUpperCase()));
+
+            if(activeItem) {
+                if(myPiece) applyItem(r, c, activeItem, true);
+                else addLog("ใช้ไอเทมได้เฉพาะหมากของคุณเท่านั้น!", 'log-sys');
+                activeItem = null;
+                document.getElementById('item-status').innerText = "คลิกที่หมากเพื่อเดิน";
+                updateInventoryUI();
+                return;
+            }
+
+            if(selected) {
+                const targetMove = moves.find(m => m.r === r && m.c === c);
+                if(targetMove) {
+                    if(board[r][c] !== "") startBattle(selected.r, selected.c, r, c);
+                    else executeMove(selected.r, selected.c, r, c);
+                    return;
+                }
+            }
+            if(myPiece) { selected = {r, c}; moves = getMoves(r, c); render(); }
+            else { selected = null; moves = []; render(); }
+        }
+
+        function applyItem(r, c, type, isPlayer) {
+            let items = isPlayer ? pItems : botItems;
+            if(items[type] <= 0) return;
+            
+            let char = board[r][c];
+            let maxHp = pieceStats[char.toLowerCase()].hp;
+            let name = pieceStats[char.toLowerCase()].name;
+            let logType = isPlayer ? 'log-player' : 'log-ai';
+            let ownerName = isPlayer ? 'คุณ' : 'AI';
+
+            if(type === 'sword') {
+                boardSword[r][c] = true;
+                items.sword--;
+                addLog(`🗡️ ${ownerName} ติดดาบให้ ${name} (Dmg x2 บัพ 1 ครั้ง)`, logType);
+            } else if(type === 'shield') {
+                boardArmor[r][c] += (maxHp * 0.5);
+                items.shield--;
+                addLog(`🛡️ ${ownerName} กางโล่ให้ ${name} (+Armor)`, logType);
+            } else if(type === 'repair') {
+                let heal = Math.ceil(maxHp * 0.2);
+                boardHP[r][c] = Math.min(maxHp, boardHP[r][c] + heal);
+                items.repair--;
+                addLog(`🔧 ${ownerName} ซ่อม ${name} (+${heal} HP)`, logType);
+            }
+            render();
+        }
+
+        function botUseItems() {
+            let myPieces = [];
+            for(let r=0; r<8; r++) for(let c=0; c<8; c++) {
+                let p = board[r][c];
+                if(p && (playerColor === 'white' ? p===p.toUpperCase() : p===p.toLowerCase())) {
+                    myPieces.push({r, c, p: p.toLowerCase()});
+                }
+            }
+            if(myPieces.length === 0) return;
+
+            if(botItems.repair > 0) {
+                let injured = myPieces.filter(m => boardHP[m.r][m.c] <= pieceStats[m.p].hp * 0.8);
+                if(injured.length > 0) {
+                    injured.sort((a,b) => pieceStats[b.p].hp - pieceStats[a.p].hp);
+                    applyItem(injured[0].r, injured[0].c, 'repair', false);
+                }
+            }
+            if(botItems.shield > 0) {
+                let king = myPieces.find(m => m.p === 'k');
+                let strong = myPieces.find(m => pieceStats[m.p].hp >= 15);
+                let target = (king && boardArmor[king.r][king.c] === 0) ? king : (strong && boardArmor[strong.r][strong.c] === 0 ? strong : null);
+                if(target) applyItem(target.r, target.c, 'shield', false);
+            }
+            if(botItems.sword > 0) {
+                let attacker = myPieces.find(m => !boardSword[m.r][m.c] && pieceStats[m.p].maxDmg >= 5);
+                if(attacker) applyItem(attacker.r, attacker.c, 'sword', false);
+            }
+        }
+
+        function getMoves(r, c) {
+            const p = board[r][c]; if(!p) return [];
+            const isWhite = (p === p.toLowerCase());
+            const type = p.toLowerCase();
+            const list = [];
+            const dirs = {
+                'r': [[0,1],[0,-1],[1,0],[-1,0]], 'b': [[1,1],[1,-1],[-1,1],[-1,-1]],
+                'q': [[0,1],[0,-1],[1,0],[-1,0],[1,1],[1,-1],[-1,1],[-1,-1]],
+                'n': [[2,1],[2,-1],[-2,1],[-2,-1],[1,2],[1,-2],[-1,2],[-1,-2]],
+                'k': [[0,1],[0,-1],[1,0],[-1,0],[1,1],[1,-1],[-1,1],[-1,-1]]
+            };
+
+            if(dirs[type]) {
+                for(let d of dirs[type]) {
+                    let nr = r + d[0], nc = c + d[1];
+                    while(nr>=0 && nr<8 && nc>=0 && nc<8) {
+                        const target = board[nr][nc];
+                        if(target === "") { list.push({r:nr, c:nc}); if(type==='n' || type==='k') break; }
+                        else { if((target === target.toLowerCase()) !== isWhite) list.push({r:nr, c:nc}); break; }
+                        nr += d[0]; nc += d[1];
+                    }
+                }
+            } else if(type === 'p') {
+                const step = isWhite ? -1 : 1;
+                if(r+step>=0 && r+step<8 && board[r+step][c] === "") list.push({r:r+step, c:c});
+                for(let side of [-1, 1]) {
+                    if(r+step>=0 && r+step<8 && c+side>=0 && c+side<8) {
+                        const t = board[r+step][c+side];
+                        if(t !== "" && (t === t.toLowerCase()) !== isWhite) list.push({r:r+step, c:c+side});
+                    }
+                }
+            }
+            return list;
+        }
+
+        function executeMove(r1, c1, r2, c2) {
+            const piece = pieceStats[board[r1][c1].toLowerCase()].name;
+            const logType = turn === playerColor ? 'log-player' : 'log-ai';
+            addLog(`${turn === playerColor ? 'คุณ' : 'AI'} เดิน ${piece}`, logType);
+            
+            board[r2][c2] = board[r1][c1]; boardHP[r2][c2] = boardHP[r1][c1]; 
+            boardArmor[r2][c2] = boardArmor[r1][c1]; boardSword[r2][c2] = boardSword[r1][c1];
+            
+            board[r1][c1] = ''; boardHP[r1][c1] = 0; boardArmor[r1][c1] = 0; boardSword[r1][c1] = false;
+            
+            endTurnRoutine();
+        }
+
+        function endTurnRoutine(isFirst = false) {
+            selected = null; moves = [];
+            let kings = board.flat().filter(p => p.toLowerCase() === 'k').length;
+            if(kings < 2 && !isFirst) { finishGame(); return; }
+
+            if(!isFirst) turn = (turn === 'white' ? 'black' : 'white');
+            document.getElementById('turn-info').innerText = `TURN: ${turn.toUpperCase()}`;
+            render();
+            if(turn !== playerColor) setTimeout(botMove, 800);
+            else isProcessing = false;
+        }
+
+        function botMove() {
+            if(isBattle || isProcessing) return;
+            isProcessing = true;
+            
+            botUseItems();
+
+            let myPieces = [];
+            for(let r=0; r<8; r++) for(let c=0; c<8; c++) {
+                const p = board[r][c];
+                if(p && (playerColor === 'white' ? p===p.toUpperCase() : p===p.toLowerCase())) {
+                    const m = getMoves(r, c); if(m.length > 0) myPieces.push({r, c, m});
+                }
+            }
+            if(myPieces.length === 0) { finishGame(); return; }
+            let killMoves = [];
+            for(let p of myPieces) for(let mv of p.m) if(board[mv.r][mv.c]) killMoves.push({from: p, to: mv});
+
+            const choice = killMoves.length > 0 ? killMoves[Math.floor(Math.random() * killMoves.length)] : myPieces[Math.floor(Math.random() * myPieces.length)];
+            const target = choice.to || choice.m[Math.floor(Math.random() * choice.m.length)];
+            if(board[target.r][target.c]) startBattle(choice.from ? choice.from.r : choice.r, choice.from ? choice.from.c : choice.c, target.r, target.c);
+            else executeMove(choice.r, choice.c, target.r, target.c);
+        }
+
+        function startBattle(r1, c1, r2, c2) {
+            isBattle = true;
+            const atkChar = board[r1][c1].toLowerCase(), defChar = board[r2][c2].toLowerCase();
+            
+            battleData = {
+                attacker: { hp: boardHP[r1][c1], maxHp: pieceStats[atkChar].hp, armor: boardArmor[r1][c1], armorMax: pieceStats[atkChar].hp * 0.5, sword: boardSword[r1][c1], en: 10, name: pieceStats[atkChar].name, minDmg: pieceStats[atkChar].minDmg, maxDmg: pieceStats[atkChar].maxDmg, isPlayer: turn === playerColor },
+                defender: { hp: boardHP[r2][c2], maxHp: pieceStats[defChar].hp, armor: boardArmor[r2][c2], armorMax: pieceStats[defChar].hp * 0.5, sword: boardSword[r2][c2], en: 10, name: pieceStats[defChar].name, minDmg: pieceStats[defChar].minDmg, maxDmg: pieceStats[defChar].maxDmg, isPlayer: turn !== playerColor },
+                currentTurn: 'attacker', r1, c1, r2, c2, defActive: false
+            };
+            document.getElementById('battle-screen').style.display = 'block';
+            updateBattleDisplay();
+            document.getElementById('battle-log').innerText = "DUEL START!";
+            updateBattleUI();
+
+            if(!battleData.attacker.isPlayer) setTimeout(botCombatStep, 1000);
+        }
+
+        function updateBattleDisplay() {
+            const atk = battleData.attacker, def = battleData.defender;
+            document.getElementById('atk-side').innerText = atk.isPlayer ? "YOU (ATTACKER)" : "AI (ATTACKER)";
+            document.getElementById('atk-name').innerText = atk.name;
+            document.getElementById('atk-stats-tag').innerText = `Atk: ${atk.minDmg}-${atk.maxDmg}`;
+            document.getElementById('atk-buff').innerText = atk.sword ? " 🗡️ x2" : "";
+
+            document.getElementById('def-side').innerText = def.isPlayer ? "YOU (DEFENDER)" : "AI (DEFENDER)";
+            document.getElementById('def-name').innerText = def.name;
+            document.getElementById('def-stats-tag').innerText = `Atk: ${def.minDmg}-${def.maxDmg}`;
+            document.getElementById('def-buff').innerText = def.sword ? " 🗡️ x2" : "";
+        }
+
+        function combatAction(act) {
+            if(!battleData[battleData.currentTurn].isPlayer || !isBattle) return;
+            execCombat(act);
+        }
+
+        function execCombat(act) {
+            let cur = battleData[battleData.currentTurn], opp = battleData[battleData.currentTurn === 'attacker' ? 'defender' : 'attacker'];
+            let log = "";
+
+            if(act === 'attack') {
+                cur.en -= 2;
+                let dmg = Math.floor(Math.random() * (cur.maxDmg - cur.minDmg + 1)) + cur.minDmg;
+                if(cur.sword) { dmg *= 2; log += `[ดาบx2] `; }
+                if(Math.random() < 0.01) { dmg *= 2; log += `CRIT! `; }
+                if(battleData.defActive) { dmg = Math.ceil(dmg * 0.4); battleData.defActive = false; }
+                
+                if(opp.armor > 0) {
+                    if(dmg >= opp.armor) { dmg -= opp.armor; opp.armor = 0; log += `เกราะแตก! `; }
+                    else { opp.armor -= dmg; dmg = 0; log += `เกราะรับดาเมจ! `; }
+                }
+                opp.hp = Math.max(0, opp.hp - dmg);
+                if(dmg > 0) log += `${cur.name} โจมตีเข้าเนื้อ ${dmg} DMG`;
+            } else { 
+                cur.en = Math.min(10, cur.en + 2); 
+                battleData.defActive = true; 
+                log = `${cur.name} ป้องกัน!`; 
+            }
+            
+            document.getElementById('battle-log').innerText = log;
+
+            /* FIX: อัปเดต UI ให้ถูกต้องในจังหวะสลับ Turn */
+            if(opp.hp <= 0) {
+                updateBattleUI(); // อัปเดตให้เห็นว่าเลือดหมด
+                setTimeout(() => finishBattle(battleData.currentTurn === 'attacker'), 800);
+            } else { 
+                // สลับฝั่งคนเล่นก่อน
+                battleData.currentTurn = battleData.currentTurn === 'attacker' ? 'defender' : 'attacker'; 
+                // ค่อยอัปเดตปุ่มให้ผู้เล่นกดได้
+                updateBattleUI();
+                
+                if(!battleData[battleData.currentTurn].isPlayer) setTimeout(botCombatStep, 800); 
+            }
+        }
+
+        function botCombatStep() { 
+            if(isBattle) execCombat(battleData[battleData.currentTurn].en >= 2 ? (Math.random() > 0.4 ? 'attack' : 'defense') : 'defense'); 
+        }
+
+        function finishBattle(atkWon) {
+            const winner = atkWon ? battleData.attacker : battleData.defender;
+            addLog(`⚔️ จบศึก! ${winner.name} รอดชีวิต`);
+            
+            if(atkWon) {
+                board[battleData.r2][battleData.c2] = board[battleData.r1][battleData.c1];
+                boardHP[battleData.r2][battleData.c2] = battleData.attacker.hp;
+                boardArmor[battleData.r2][battleData.c2] = battleData.attacker.armor;
+                boardSword[battleData.r2][battleData.c2] = false; 
+            } else {
+                boardHP[battleData.r2][battleData.c2] = battleData.defender.hp;
+                boardArmor[battleData.r2][battleData.c2] = battleData.defender.armor;
+                boardSword[battleData.r2][battleData.c2] = false; 
+            }
+            board[battleData.r1][battleData.c1] = ''; boardHP[battleData.r1][battleData.c1] = 0; boardArmor[battleData.r1][battleData.c1] = 0; boardSword[battleData.r1][battleData.c1] = false;
+
+            document.getElementById('battle-screen').style.display = 'none';
+            isBattle = false; endTurnRoutine();
+        }
+
+        function finishGame() {
+            const wK = board.flat().includes('k'), bK = board.flat().includes('K');
+            const win = (playerColor === 'white' && wK) || (playerColor === 'black' && bK);
+            winStreak = win ? winStreak + 1 : 0;
+            document.getElementById('result-text').innerText = win ? "YOU WIN!" : "YOU LOSE!";
+            document.getElementById('result-text').style.color = win ? "#2ecc71" : "#e74c3c";
+            document.getElementById('final-score').innerText = `ชนะสะสม: ${winStreak} รอบ`;
+            document.getElementById('gameover-screen').style.display = 'flex';
+        }
+
+        function updateBattleUI() {
+            const atk = battleData.attacker, def = battleData.defender;
+            document.getElementById('hp-atk').style.width = (atk.hp / atk.maxHp * 100) + "%";
+            document.getElementById('hp-def').style.width = (def.hp / def.maxHp * 100) + "%";
+            document.getElementById('armor-atk').style.width = (atk.armorMax > 0 ? (atk.armor / atk.armorMax * 100) : 0) + "%";
+            document.getElementById('armor-def').style.width = (def.armorMax > 0 ? (def.armor / def.armorMax * 100) : 0) + "%";
+            document.getElementById('en-atk').innerText = atk.en; 
+            document.getElementById('en-def').innerText = def.en;
+            
+            /* FIX: เปลี่ยน ID เป็น combat-atk-btn และ combat-def-btn ให้ตรงกับใน HTML */
+            document.getElementById('combat-atk-btn').disabled = !battleData[battleData.currentTurn].isPlayer || battleData[battleData.currentTurn].en < 2;
+            document.getElementById('combat-def-btn').disabled = !battleData[battleData.currentTurn].isPlayer;
+        }
+    </script>
+</body>
+</html>
