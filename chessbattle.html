@@ -1,0 +1,331 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <title>Chess By คนโดนล้อว่าท้องเพราะเมียตัวเอง</title>
+    <style>
+        body { font-family: sans-serif; display: flex; flex-direction: column; align-items: center; background: #1a1a1a; color: white; margin: 0; padding: 20px; }
+        .board { display: grid; grid-template-columns: repeat(8, 60px); grid-template-rows: repeat(8, 60px); border: 8px solid #5D4037; }
+        .cell { width: 60px; height: 60px; display: flex; justify-content: center; align-items: center; font-size: 45px; cursor: pointer; position: relative; }
+        .brown { background: #8B4513; } .gold { background: #FFD700; }
+        .selected { background: #2ecc71 !important; }
+        .highlight { width: 12px; height: 12px; background: rgba(255,255,255,0.6); border-radius: 50%; position: absolute; pointer-events: none; }
+        .w-piece { color: #ffffff; filter: drop-shadow(0 0 2px black); }
+        .b-piece { color: #000000; filter: drop-shadow(0 0 1px white); }
+
+        #battle-screen { 
+            display: none; position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
+            width: 420px; background: #2d3436; border: 4px solid #FFD700; border-radius: 20px; z-index: 100; padding: 25px; text-align: center;
+        }
+        .hp-bar { width: 100%; height: 18px; background: #444; border-radius: 9px; margin: 8px 0; border: 2px solid #fff; overflow: hidden; }
+        .hp-fill { height: 100%; background: #2ecc71; width: 100%; transition: 0.3s; }
+        button { padding: 12px 18px; margin: 8px; cursor: pointer; font-weight: bold; border-radius: 8px; border: none; }
+        .btn-atk { background: #e17055; color: white; } .btn-def { background: #0984e3; color: white; }
+        #log { color: #fdcb6e; font-size: 15px; min-height: 45px; margin-top: 10px; font-weight: bold; }
+        .stats-info { font-size: 13px; color: #bdc3c7; margin-bottom: 5px; }
+        .side-label { font-size: 14px; font-weight: bold; color: #FFD700; margin-bottom: 2px; }
+    </style>
+</head>
+<body>
+
+    <h2 id="side-info">Chess Battle</h2>
+    <h3 id="turn-info" style="color:#FFD700">Turn: White</h3>
+
+    <div id="game-container">
+        <div id="board" class="board"></div>
+
+        <div id="battle-screen">
+            <h2 id="battle-title" style="color: #FFD700; margin:0 0 15px 0;">BATTLE!</h2>
+            
+            <div id="atk-ui">
+                <div class="side-label" id="atk-side">ATTACKER</div>
+                <div id="atk-name" style="font-weight:bold;">Piece Name</div>
+                <div class="stats-info" id="atk-stats">Atk: -</div>
+                <div class="hp-bar"><div id="hp-atk" class="hp-fill"></div></div>
+                <div>Energy: <span id="en-atk">10</span></div>
+            </div>
+
+            <div style="margin: 10px; font-weight: bold; color: #e74c3c;">VS</div>
+
+            <div id="def-ui">
+                <div class="side-label" id="def-side">DEFENDER</div>
+                <div id="def-name" style="font-weight:bold;">Piece Name</div>
+                <div class="stats-info" id="def-stats">Atk: -</div>
+                <div class="hp-bar"><div id="hp-def" class="hp-fill"></div></div>
+                <div>Energy: <span id="en-def">10</span></div>
+            </div>
+
+            <div id="player-controls" style="margin-top:20px;">
+                <button class="btn-atk" id="combat-atk-btn" onclick="combatAction('attack')">โจมตี (-2E)</button>
+                <button class="btn-def" id="combat-def-btn" onclick="combatAction('defense')">ป้องกัน (-60% DMG)</button>
+            </div>
+            <p id="log"></p>
+        </div>
+    </div>
+
+    <script>
+        const pieceIcons = { 'R':'♜','N':'♞','B':'♝','Q':'♛','K':'♚','P':'♟','r':'♜','n':'♞','b':'♝','q':'♛','k':'♚','p':'♟', '':'' };
+        
+        const pieceStats = {
+            'p': { hp: 10, minDmg: 1, maxDmg: 3, name: 'Pawn' },
+            'n': { hp: 20, minDmg: 2, maxDmg: 3, name: 'Knight' },
+            'b': { hp: 3,  minDmg: 12, maxDmg: 20, name: 'Bishop' },
+            'r': { hp: 12, minDmg: 3, maxDmg: 5, name: 'Rook' },
+            'q': { hp: 30, minDmg: 1, maxDmg: 2, name: 'Queen' },
+            'k': { hp: 15, minDmg: 4, maxDmg: 6, name: 'King' }
+        };
+
+        let playerColor = Math.random() > 0.5 ? 'white' : 'black';
+        let turn = 'white';
+        let selected = null;
+        let moves = [];
+        let isBattle = false;
+        let isProcessing = false;
+        let battleData = null;
+
+        let board = [
+            ['R','N','B','Q','K','B','N','R'], ['P','P','P','P','P','P','P','P'],
+            ['','','','','','','',''],['','','','','','','',''],['','','','','','','',''],['','','','','','','',''],
+            ['p','p','p','p','p','p','p','p'], ['r','n','b','q','k','b','n','r']
+        ];
+
+        function init() {
+            document.getElementById('side-info').innerText = `You เล่นฝั่ง: ${playerColor.toUpperCase()}`;
+            render();
+            if(turn !== playerColor) setTimeout(botMove, 1000);
+        }
+
+        function render() {
+            const bEl = document.getElementById('board'); bEl.innerHTML = '';
+            for(let r=0; r<8; r++) {
+                for(let c=0; c<8; c++) {
+                    const cell = document.createElement('div');
+                    cell.className = `cell ${(r+c)%2===0 ? 'gold' : 'brown'}`;
+                    if(selected && selected.r === r && selected.c === c) cell.classList.add('selected');
+                    const char = board[r][c];
+                    if(char !== '') {
+                        cell.textContent = pieceIcons[char];
+                        cell.classList.add(char === char.toLowerCase() ? 'w-piece' : 'b-piece');
+                    }
+                    if(moves.some(m => m.r === r && m.c === c)) {
+                        const dot = document.createElement('div'); dot.className = 'highlight'; cell.appendChild(dot);
+                    }
+                    cell.onclick = () => handleClick(r, c);
+                    bEl.appendChild(cell);
+                }
+            }
+        }
+
+        function handleClick(r, c) {
+            if(isBattle || turn !== playerColor || isProcessing) return;
+            const p = board[r][c];
+            const isWhite = (p !== '' && p === p.toLowerCase());
+            const myPiece = (playerColor === 'white' && isWhite) || (playerColor === 'black' && (p !== '' && p === p.toUpperCase()));
+
+            if(selected) {
+                const targetMove = moves.find(m => m.r === r && m.c === c);
+                if(targetMove) {
+                    if(board[r][c] !== "") startBattle(selected.r, selected.c, r, c);
+                    else executeMove(selected.r, selected.c, r, c);
+                    return;
+                }
+            }
+            if(myPiece) { selected = {r, c}; moves = getMoves(r, c); render(); }
+            else { selected = null; moves = []; render(); }
+        }
+
+        function getMoves(r, c) {
+            const p = board[r][c]; if(!p) return [];
+            const isWhite = (p === p.toLowerCase());
+            const type = p.toLowerCase();
+            const list = [];
+            const dirs = {
+                'r': [[0,1],[0,-1],[1,0],[-1,0]], 'b': [[1,1],[1,-1],[-1,1],[-1,-1]],
+                'q': [[0,1],[0,-1],[1,0],[-1,0],[1,1],[1,-1],[-1,1],[-1,-1]],
+                'n': [[2,1],[2,-1],[-2,1],[-2,-1],[1,2],[1,-2],[-1,2],[-1,-2]],
+                'k': [[0,1],[0,-1],[1,0],[-1,0],[1,1],[1,-1],[-1,1],[-1,-1]]
+            };
+
+            if(dirs[type]) {
+                for(let d of dirs[type]) {
+                    let nr = r + d[0], nc = c + d[1];
+                    while(nr>=0 && nr<8 && nc>=0 && nc<8) {
+                        const target = board[nr][nc];
+                        if(target === "") { list.push({r:nr, c:nc}); if(type==='n' || type==='k') break; }
+                        else { if((target === target.toLowerCase()) !== isWhite) list.push({r:nr, c:nc}); break; }
+                        nr += d[0]; nc += d[1];
+                    }
+                }
+            } else if(type === 'p') {
+                const step = isWhite ? -1 : 1;
+                if(r+step>=0 && r+step<8 && board[r+step][c] === "") list.push({r:r+step, c:c});
+                for(let side of [-1, 1]) {
+                    if(r+step>=0 && r+step<8 && c+side>=0 && c+side<8) {
+                        const t = board[r+step][c+side];
+                        if(t !== "" && (t === t.toLowerCase()) !== isWhite) list.push({r:r+step, c:c+side});
+                    }
+                }
+            }
+            return list;
+        }
+
+        function executeMove(r1, c1, r2, c2) {
+            board[r2][c2] = board[r1][c1]; board[r1][c1] = '';
+            endTurn();
+        }
+
+        function endTurn() {
+            selected = null; moves = [];
+            turn = (turn === 'white' ? 'black' : 'white');
+            document.getElementById('turn-info').innerText = `Turn: ${turn.toUpperCase()}`;
+            render();
+            if(turn !== playerColor) setTimeout(botMove, 800);
+            else isProcessing = false;
+        }
+
+        function botMove() {
+            if(isBattle || isProcessing) return;
+            isProcessing = true;
+            let myPieces = [];
+            for(let r=0; r<8; r++) for(let c=0; c<8; c++) {
+                const p = board[r][c];
+                if(p !== "" && (playerColor === 'white' ? p===p.toUpperCase() : p===p.toLowerCase())) {
+                    const m = getMoves(r, c); if(m.length > 0) myPieces.push({r, c, m});
+                }
+            }
+            if(myPieces.length === 0) { isProcessing = false; return; }
+
+            let killMoves = [];
+            for(let p of myPieces) for(let mv of p.m) if(board[mv.r][mv.c] !== "") killMoves.push({from: p, to: mv});
+
+            if(killMoves.length > 0) {
+                const choice = killMoves[Math.floor(Math.random() * killMoves.length)];
+                startBattle(choice.from.r, choice.from.c, choice.to.r, choice.to.c);
+            } else {
+                const choice = myPieces[Math.floor(Math.random() * myPieces.length)];
+                const target = choice.m[Math.floor(Math.random() * choice.m.length)];
+                executeMove(choice.r, choice.c, target.r, target.c);
+            }
+        }
+
+        function startBattle(r1, c1, r2, c2) {
+            isBattle = true;
+            const atkChar = board[r1][c1].toLowerCase();
+            const defChar = board[r2][c2].toLowerCase();
+            
+            // ล็อคตัวตนหมากให้ชัดเจน: attacker = คนเดินบุก | defender = คนตั้งรับ
+            battleData = {
+                attacker: { 
+                    hp: pieceStats[atkChar].hp, maxHp: pieceStats[atkChar].hp, 
+                    en: 10, name: pieceStats[atkChar].name, 
+                    minDmg: pieceStats[atkChar].minDmg, maxDmg: pieceStats[atkChar].maxDmg,
+                    isPlayer: (turn === playerColor)
+                },
+                defender: { 
+                    hp: pieceStats[defChar].hp, maxHp: pieceStats[defChar].hp, 
+                    en: 10, name: pieceStats[defChar].name, 
+                    minDmg: pieceStats[defChar].minDmg, maxDmg: pieceStats[defChar].maxDmg,
+                    isPlayer: (turn !== playerColor)
+                },
+                currentTurn: 'attacker', 
+                r1, c1, r2, c2, defActive: false
+            };
+
+            document.getElementById('battle-screen').style.display = 'block';
+            updateBattleDisplay();
+            document.getElementById('log').innerText = "DUEL START!";
+            updateBattleUI();
+
+            // ถ้าคนเริ่มบุกคือบอท ให้บอทเริ่มตี
+            if(!battleData.attacker.isPlayer) {
+                setTimeout(() => botCombatStep(), 1000);
+            }
+        }
+
+        function updateBattleDisplay() {
+            const atk = battleData.attacker;
+            const def = battleData.defender;
+
+            document.getElementById('atk-side').innerText = atk.isPlayer ? "YOUR PIECE (ATTACKER)" : "ENEMY PIECE (ATTACKER)";
+            document.getElementById('atk-name').innerText = atk.name;
+            document.getElementById('atk-stats').innerText = `Atk: ${atk.minDmg}-${atk.maxDmg}`;
+
+            document.getElementById('def-side').innerText = def.isPlayer ? "YOUR PIECE (DEFENDER)" : "ENEMY PIECE (DEFENDER)";
+            document.getElementById('def-name').innerText = def.name;
+            document.getElementById('def-stats').innerText = `Atk: ${def.minDmg}-${def.maxDmg}`;
+        }
+
+        function combatAction(act) {
+            const current = battleData[battleData.currentTurn];
+            if(!current.isPlayer || !isBattle) return;
+            execCombat(act);
+        }
+
+        function execCombat(act) {
+            let cur = battleData[battleData.currentTurn];
+            let opp = battleData[battleData.currentTurn === 'attacker' ? 'defender' : 'attacker'];
+            let logMsg = "";
+
+            if(act === 'attack') {
+                if(cur.en >= 2) {
+                    cur.en -= 2;
+                    let dmg = Math.floor(Math.random() * (cur.maxDmg - cur.minDmg + 1)) + cur.minDmg;
+                    if(Math.random() < 0.01) { dmg *= 2; logMsg = `CRIT! `; }
+                    if(battleData.defActive) { dmg = Math.ceil(dmg * 0.4); logMsg += `(Guard!) `; battleData.defActive = false; }
+                    opp.hp = Math.max(0, opp.hp - dmg);
+                    logMsg += `${cur.name} โจมตี ${dmg} HP`;
+                } else { if(cur.isPlayer) alert("Energy ไม่พอ!"); return; }
+            } else {
+                cur.en = Math.min(10, cur.en + 2);
+                battleData.defActive = true;
+                logMsg = `${cur.name} ป้องกัน!`;
+            }
+
+            document.getElementById('log').innerHTML = logMsg;
+            updateBattleUI();
+
+            if(opp.hp <= 0) {
+                setTimeout(() => finishBattle(battleData.currentTurn === 'attacker'), 800);
+            } else {
+                battleData.currentTurn = (battleData.currentTurn === 'attacker' ? 'defender' : 'attacker');
+                updateBattleUI();
+                if(!battleData[battleData.currentTurn].isPlayer) {
+                    setTimeout(() => botCombatStep(), 800);
+                }
+            }
+        }
+
+        function botCombatStep() {
+            if(!isBattle) return;
+            const bot = battleData[battleData.currentTurn];
+            const action = bot.en >= 2 ? (Math.random() > 0.3 ? 'attack' : 'defense') : 'defense';
+            execCombat(action);
+        }
+
+        function finishBattle(attackerWon) {
+            if(attackerWon) {
+                board[battleData.r2][battleData.c2] = board[battleData.r1][battleData.c1];
+                board[battleData.r1][battleData.c1] = '';
+            } else {
+                board[battleData.r1][battleData.c1] = '';
+            }
+            isBattle = false;
+            document.getElementById('battle-screen').style.display = 'none';
+            endTurn();
+        }
+
+        function updateBattleUI() {
+            document.getElementById('hp-atk').style.width = (battleData.attacker.hp / battleData.attacker.maxHp * 100) + "%";
+            document.getElementById('hp-def').style.width = (battleData.defender.hp / battleData.defender.maxHp * 100) + "%";
+            document.getElementById('en-atk').innerText = battleData.attacker.en;
+            document.getElementById('en-def').innerText = battleData.defender.en;
+            
+            const isPlayerTurn = battleData[battleData.currentTurn].isPlayer;
+            document.getElementById('combat-atk-btn').disabled = !isPlayerTurn || battleData[battleData.currentTurn].en < 2;
+            document.getElementById('combat-def-btn').disabled = !isPlayerTurn;
+        }
+
+        init();
+    </script>
+</body>
+</html>
